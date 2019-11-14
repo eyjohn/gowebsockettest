@@ -8,3 +8,4 @@
     auto-connect = false
     dockerfile = "Dockerfile"
     chart = ""
+    custom-tags = ["latest"]
