@@ -51,5 +51,5 @@ func main() {
 	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/websocket", websocketHandler)
 	http.HandleFunc("/", defaultHandler)
-	log.Fatal(http.ListenAndServe("localhost:8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
