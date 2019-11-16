@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -22,7 +21,7 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 
 func websocketPing(conn *websocket.Conn) {
 	for {
-		timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+		timestamp := "Go: " + time.Now().UTC().Format(time.RFC3339Nano)
 		err := conn.WriteMessage(websocket.TextMessage, []byte(timestamp))
 		if err != nil {
 			log.Println(err)

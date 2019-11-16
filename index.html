@@ -3,28 +3,69 @@
 
 <head>
     <title>WebSocket demo</title>
+    <script>
+        var ws;
+
+        function getWsUrl() {
+            var loc = window.location, new_uri;
+            if (loc.protocol === "https:") {
+                new_uri = "wss:";
+            } else {
+                new_uri = "ws:";
+            }
+            new_uri += "//" + loc.host + "/websocket";
+            return new_uri;
+        }
+
+        function connect() {
+            addLogItem('statuslog', "Connecting");
+            var ws = new WebSocket(getWsUrl());
+            ws.onopen = function () {
+                addLogItem('statuslog', "Connected");
+            };
+
+            ws.onmessage = function (e) {
+                addLogItem("messagelog", e.data);
+            };
+
+            ws.onclose = function (e) {
+                addLogItem('statuslog', "Connection Closed, reconnecting");
+                setTimeout(connect, 1000);
+            };
+
+            ws.onerror = function (err) {
+                addLogItem('statuslog', 'Error, reconnecting');
+                ws.close();
+            };
+        }
+
+        function addLogItem(logType, message) {
+            var messages = document.getElementById(logType);
+            if (messages.childElementCount == 20) {
+                messages.removeChild(messages.firstChild);
+            }
+            var item = document.createElement('li');
+            item.innerText = `${new Date().toISOString()}: ${message}`;
+            messages.appendChild(item);
+        }
+
+        window.onload = (event) => {
+            connect();
+        };
+    </script>
 </head>
 
 <body>
-    <script>
-        var loc = window.location, new_uri;
-        if (loc.protocol === "https:") {
-            new_uri = "wss:";
-        } else {
-            new_uri = "ws:";
-        }
-        new_uri += "//" + loc.host + "/websocket";
-        var ws = new WebSocket(new_uri),
-            messages = document.createElement('ul');
-        ws.onmessage = function (event) {
-            var messages = document.getElementsByTagName('ul')[0],
-                message = document.createElement('li'),
-                content = document.createTextNode(event.data);
-            message.appendChild(content);
-            messages.appendChild(message);
-        };
-        document.body.appendChild(messages);
-    </script>
+    <div style="display: flex;">
+        <div style="flex: 50%;">
+            <strong>Status: </strong>
+            <ul id="statuslog"></ul>
+        </div>
+        <div style="flex: 50%;">
+            <strong>Messages: </strong>
+            <ul id="messagelog"></ul>
+        </div>
+    </div>
 </body>
 
 </html>
