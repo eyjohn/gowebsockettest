@@ -2,9 +2,12 @@
 <html>
 
 <head>
-    <title>WebSocket demo</title>
+    <title>Go WebSocket Test</title>
     <script>
-        var ws;
+        function log(message) {
+            var logElement = document.getElementById("log");
+            logElement.innerText += new Date().toISOString() + ": " + message + "\n";
+        }
 
         function getWsUrl() {
             var loc = window.location, new_uri;
@@ -17,55 +20,45 @@
             return new_uri;
         }
 
+        var ws;
         function connect() {
-            addLogItem('statuslog', "Connecting");
-            var ws = new WebSocket(getWsUrl());
-            ws.onopen = function () {
-                addLogItem('statuslog', "Connected");
+            log("Connecting");
+            ws = new WebSocket(getWsUrl());
+            ws.onopen = () => {
+                log("Connected");
             };
 
-            ws.onmessage = function (e) {
-                addLogItem("messagelog", e.data);
+            ws.onmessage = (event) => {
+                log("Received: " + event.data);
             };
 
-            ws.onclose = function (e) {
-                addLogItem('statuslog', "Connection Closed, reconnecting");
+            ws.onclose = (event) => {
+                log("Connection Closed, Reconnecting");
                 setTimeout(connect, 1000);
             };
 
-            ws.onerror = function (err) {
-                addLogItem('statuslog', 'Error, reconnecting');
+            ws.onerror = (error) => {
+                log("Error, Closing");
                 ws.close();
             };
         }
 
-        function addLogItem(logType, message) {
-            var messages = document.getElementById(logType);
-            if (messages.childElementCount == 20) {
-                messages.removeChild(messages.firstChild);
-            }
-            var item = document.createElement('li');
-            item.innerText = `${new Date().toISOString()}: ${message}`;
-            messages.appendChild(item);
-        }
-
         window.onload = (event) => {
+            // Connect button and input to send messages
+            document.getElementById('send').onclick = (event) => {
+                ws.send(document.getElementById("payload").value);
+            }
+            // Start a connection
             connect();
         };
+
     </script>
 </head>
 
 <body>
-    <div style="display: flex;">
-        <div style="flex: 50%;">
-            <strong>Status: </strong>
-            <ul id="statuslog"></ul>
-        </div>
-        <div style="flex: 50%;">
-            <strong>Messages: </strong>
-            <ul id="messagelog"></ul>
-        </div>
-    </div>
+    <input id="payload" type="text" />
+    <button id="send">Send</button>
+    <pre id="log"></pre>
 </body>
 
 </html>

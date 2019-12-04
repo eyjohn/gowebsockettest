@@ -9,3 +9,15 @@
     dockerfile = "Dockerfile"
     chart = ""
     custom-tags = ["latest"]
+
+  [environments.production]
+    name = "gowebsockettest"
+    namespace = "default"
+    wait = true
+    watch = false
+    watch-delay = 2
+    auto-connect = false
+    dockerfile = "Dockerfile"
+    chart = ""
+    registry = docker.io/myusername
+    custom-tags = ["latest"]

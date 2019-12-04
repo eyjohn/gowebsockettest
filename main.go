@@ -3,26 +3,43 @@ package main
 import (
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
-	"math/rand"
 
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+func defaultHandler(w http.ResponseWriter, r *http.Request) {
+	content, _ := ioutil.ReadFile("index.html")
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(content)
 }
 
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func websocketPing(conn *websocket.Conn) {
+func websocketEcho(conn *websocket.Conn) {
 	for {
-		timestamp := "Go: " + time.Now().UTC().Format(time.RFC3339Nano)
-		err := conn.WriteMessage(websocket.TextMessage, []byte(timestamp))
+		mt, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("Read Error:", err)
+			break
+		}
+		log.Printf("Received Message: %s from %v", message, conn.RemoteAddr())
+		err = conn.WriteMessage(mt, message)
+		if err != nil {
+			log.Println("Write Error:", err)
+			break
+		}
+	}
+	conn.Close()
+}
+
+func websocketRandPing(conn *websocket.Conn) {
+	for {
+		err := conn.WriteMessage(websocket.TextMessage, []byte("randping"))
 		if err != nil {
 			log.Println(err)
 			return
@@ -31,24 +48,26 @@ func websocketPing(conn *websocket.Conn) {
 	}
 }
 
+// The upgrader which will perform the HTTP connection upgrade to WebSocket
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
 func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	go websocketPing(conn)
-}
-
-func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	content, _ := ioutil.ReadFile("index.html")
-	w.Header().Set("Content-Type", "text/html")
-	w.Write(content)
+	log.Printf("Connection from %v", conn.RemoteAddr())
+	go websocketEcho(conn)
+	go websocketRandPing(conn)
 }
 
 func main() {
+	http.HandleFunc("/", defaultHandler)
 	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/websocket", websocketHandler)
-	http.HandleFunc("/", defaultHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
