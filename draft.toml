@@ -5,7 +5,7 @@
     wait = true
     watch = false
     watch-delay = 2
-    auto-connect = false
+    auto-connect = true
     dockerfile = "Dockerfile"
     chart = ""
     custom-tags = ["latest"]
@@ -19,5 +19,5 @@
     auto-connect = false
     dockerfile = "Dockerfile"
     chart = ""
-    registry = docker.io/myusername
+    registry = "docker.io/eyjohn"
     custom-tags = ["latest"]
