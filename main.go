@@ -1,6 +1,9 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -8,6 +11,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/opentracing-contrib/go-stdlib/nethttp"
+	"github.com/opentracing/opentracing-go"
+	"github.com/uber/jaeger-client-go"
+	"github.com/uber/jaeger-client-go/config"
 )
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
@@ -65,9 +72,34 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 	go websocketRandPing(conn)
 }
 
+func initJaeger(service string) (opentracing.Tracer, io.Closer) {
+	cfg := &config.Configuration{
+		Sampler: &config.SamplerConfig{
+			Type:  "const",
+			Param: 1,
+		},
+		Reporter: &config.ReporterConfig{
+			LogSpans: true,
+		},
+	}
+	tracer, closer, err := cfg.New(service, config.Logger(jaeger.StdLogger))
+	if err != nil {
+		panic(fmt.Sprintf("ERROR: cannot init Jaeger: %v\n", err))
+	}
+	return tracer, closer
+}
+
 func main() {
+	portPtr := flag.Int("port", 8080, "port to listen for HTTP connections")
+	flag.Parse()
+
+	tracer, closer := initJaeger("gowebsockettest")
+	opentracing.SetGlobalTracer(tracer)
+	defer closer.Close()
+
 	http.HandleFunc("/", defaultHandler)
 	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/websocket", websocketHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *portPtr), nethttp.Middleware(tracer, http.DefaultServeMux)))
 }
