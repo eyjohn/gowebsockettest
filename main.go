@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -11,42 +11,53 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/opentracing/opentracing-go"
-	"github.com/uber/jaeger-client-go"
-	"github.com/uber/jaeger-client-go/config"
+
+	"go.opentelemetry.io/otel/api/global"
+	"go.opentelemetry.io/otel/api/trace"
+	"go.opentelemetry.io/otel/exporters/trace/jaeger"
+	"go.opentelemetry.io/otel/label"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-func populateCommonSpan(span opentracing.Span) {
-	span.SetTag("component", "main")
-	span.SetTag("span.kind", "server")
+var moduleTracer trace.Tracer
+
+func populateCommonSpan(span trace.Span) {
+	span.SetAttributes(
+		label.String("component", "main"),
+		label.String("span.kind", "server"),
+	)
 
 }
 
-func populateHttpSpan(span opentracing.Span, req *http.Request) {
+func populateHttpSpan(span trace.Span, req *http.Request) {
 	populateCommonSpan(span)
-	span.SetTag("http.method", req.Method)
-	span.SetTag("http.url", req.URL.String())
-	span.SetTag("peer.address", req.RemoteAddr)
+	span.SetAttributes(
+		label.String("http.method", req.Method),
+		label.String("http.url", req.URL.String()),
+		label.String("peer.address", req.RemoteAddr),
+	)
 }
 
-func populateWebsocketSpan(span opentracing.Span, conn *websocket.Conn) {
+func populateWebsocketSpan(span trace.Span, conn *websocket.Conn) {
 	populateCommonSpan(span)
-	span.SetTag("peer.address", conn.RemoteAddr())
+	span.SetAttributes(
+		label.String("peer.address", conn.RemoteAddr().String()),
+	)
 }
 
 func defaultHandler(w http.ResponseWriter, req *http.Request) {
-	span := opentracing.StartSpan("index")
+	_, span := moduleTracer.Start(req.Context(), "index")
 	populateHttpSpan(span, req)
-	defer span.Finish()
+	defer span.End()
 	content, _ := ioutil.ReadFile("index.html")
 	w.Header().Set("Content-Type", "text/html")
 	w.Write(content)
 }
 
 func healthzHandler(w http.ResponseWriter, req *http.Request) {
-	span := opentracing.StartSpan("healthz")
+	_, span := moduleTracer.Start(req.Context(), "healthz")
 	populateHttpSpan(span, req)
-	defer span.Finish()
+	defer span.End()
 	w.Write([]byte("OK"))
 }
 
@@ -57,34 +68,34 @@ func websocketEcho(conn *websocket.Conn) {
 			log.Println("Read Error:", err)
 			break
 		}
-		span := opentracing.StartSpan("message")
+		_, span := moduleTracer.Start(context.Background(), "message")
 		populateWebsocketSpan(span, conn)
-		span.SetTag("message", string(message))
+		span.SetAttribute("message", string(message))
 		log.Printf("Received Message: %s from %v", message, conn.RemoteAddr())
 		err = conn.WriteMessage(mt, message)
 		if err != nil {
 			log.Println("Write Error:", err)
-			span.LogKV(
-				"event", "error",
-				"message", err)
-			span.Finish()
+			span.AddEvent(context.Background(),
+				"error", label.String("message", err.Error()))
+			span.End()
+			span.SetAttribute("error", true)
 			break
 		}
-		span.Finish()
+		span.End()
 	}
 	conn.Close()
 }
 
 func websocketRandPing(conn *websocket.Conn) {
 	for {
-		span := opentracing.StartSpan("ping")
+		_, span := moduleTracer.Start(context.Background(), "ping")
 		populateWebsocketSpan(span, conn)
 		err := conn.WriteMessage(websocket.TextMessage, []byte("randping"))
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		span.Finish()
+		span.End()
 		time.Sleep(time.Duration(rand.Intn(int(time.Second * 3))))
 	}
 }
@@ -96,17 +107,16 @@ var upgrader = websocket.Upgrader{
 }
 
 func websocketHandler(w http.ResponseWriter, req *http.Request) {
-	span := opentracing.StartSpan("websocket")
+	_, span := moduleTracer.Start(context.Background(), "websocket")
 	populateHttpSpan(span, req)
-	defer span.Finish()
+	defer span.End()
 
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
-		span.SetTag("error", true)
-		span.LogKV(
-			"event", "error",
-			"message", err)
+		span.SetAttribute("error", true)
+		span.AddEvent(context.Background(), "error",
+			label.String("message", err.Error()))
 		return
 	}
 	log.Printf("Connection from %v", conn.RemoteAddr())
@@ -114,34 +124,34 @@ func websocketHandler(w http.ResponseWriter, req *http.Request) {
 	go websocketRandPing(conn)
 }
 
-func initJaeger(service string) (opentracing.Tracer, io.Closer) {
-	cfg := &config.Configuration{
-		Sampler: &config.SamplerConfig{
-			Type:  "const",
-			Param: 1,
-		},
-		Reporter: &config.ReporterConfig{
-			LogSpans: true,
-		},
-	}
-	tracer, closer, err := cfg.New(service, config.Logger(jaeger.StdLogger))
+func initTracer(service string) func() {
+	// Create and install Jaeger export pipeline
+	flush, err := jaeger.InstallNewPipeline(
+		jaeger.WithAgentEndpoint("localhost:6831"),
+		jaeger.WithProcess(jaeger.Process{
+			ServiceName: service,
+		}),
+		jaeger.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
+	)
 	if err != nil {
-		panic(fmt.Sprintf("ERROR: cannot init Jaeger: %v\n", err))
+		log.Fatal(err)
 	}
-	return tracer, closer
+	return func() {
+		flush()
+	}
 }
 
 func main() {
 	portPtr := flag.Int("port", 8080, "port to listen for HTTP connections")
 	flag.Parse()
 
-	tracer, closer := initJaeger("gowebsockettest")
-	opentracing.SetGlobalTracer(tracer)
-	defer closer.Close()
+	fn := initTracer("gowebsockettest")
+	defer fn()
+
+	moduleTracer = global.Tracer("main")
 
 	http.HandleFunc("/", defaultHandler)
 	http.HandleFunc("/healthz", healthzHandler)
 	http.HandleFunc("/websocket", websocketHandler)
-
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *portPtr), nil))
 }
